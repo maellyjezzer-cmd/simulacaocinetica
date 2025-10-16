@@ -1,0 +1,1 @@
+Simulação Cinética Química 
