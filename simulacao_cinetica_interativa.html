@@ -1,0 +1,318 @@
+
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Simulação Interativa: Efeito do Catalisador</title>
+<style>
+  body { font-family: Inter, Arial, sans-serif; margin: 12px; background:#f7f8fb; color:#111; }
+  h1 { font-size:20px; margin:0 0 8px 0; }
+  .container { display:flex; gap:12px; align-items:flex-start; }
+  .panel { background: white; border-radius:10px; box-shadow: 0 6px 18px rgba(15,20,30,0.06); padding:12px; }
+  .left { width:520px; padding:14px; }
+  .right { width:520px; padding:14px; }
+  svg { width:100%; height:320px; display:block; }
+  .controls { margin-top:10px; display:flex; gap:8px; align-items:center; }
+  button { padding:8px 12px; border-radius:8px; border:1px solid #d6d9e6; background:#fff; cursor:pointer; }
+  button.active { background:#1f77b4; color:white; border-color:#18659e; }
+  .label { font-size:13px; margin-top:8px; }
+  .small { font-size:12px; color:#555; }
+  #canvasAnim { background:#0b1220; border-radius:8px; display:block; }
+  .legend { display:flex; gap:10px; margin-top:6px; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; font-size:13px; }
+  .dot { width:12px; height:12px; border-radius:50%; display:inline-block; }
+  .dot.blue { background:#1f77b4 } .dot.orange { background:#ff7f0e } .dot.green { background:#2ca02c }
+  .footer { margin-top:10px; font-size:13px; color:#333; }
+  .note { font-size:12px; color:#666; margin-top:6px; }
+</style>
+</head>
+<body>
+<h1>Simulação interativa — Energia de ativação e animação molecular</h1>
+<p class="small">Painel esquerdo: gráfico da energia de ativação (sem e com catalisador). Painel direito: animação das moléculas reagindo (lado a lado). Use os controles para alternar modo.</p>
+
+<div class="container">
+  <div class="panel left" id="leftPanel">
+    <svg id="energyGraph" viewBox="0 0 800 480" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="controls">
+      <button id="playBtn">▶️ Reproduzir</button>
+      <button id="pauseBtn">⏸️ Pausar</button>
+      <label style="margin-left:10px;">Velocidade:</label>
+      <input id="speedRange" type="range" min="0.2" max="3" step="0.1" value="1" />
+      <div style="flex:1"></div>
+      <button id="toggleMode" class="active">Modo: Sem catalisador</button>
+    </div>
+    <div class="legend">
+      <span><span class="dot blue"></span> Sem catalisador (pico maior)</span>
+      <span><span class="dot orange"></span> Com catalisador (pico menor)</span>
+    </div>
+    <div class="note">A linha vertical representa o progresso da reação. Observe que no modo "com catalisador" o progresso atravessa a barreira mais rápido.</div>
+  </div>
+
+  <div class="panel right" id="rightPanel">
+    <svg id="miniGraph" viewBox="0 0 400 200" preserveAspectRatio="xMidYMid meet" style="height:140px;"></svg>
+    <canvas id="canvasAnim" width="480" height="300"></canvas>
+    <div class="controls">
+      <label>Prob. de reação por colisão:</label>
+      <input id="probRange" type="range" min="0" max="1" step="0.01" value="0.2" />
+      <div style="flex:1"></div>
+      <button id="resetBtn">🔄 Reset</button>
+    </div>
+    <div class="footer">Legenda: <span class="dot blue"></span> Reagente A &nbsp; <span class="dot orange"></span> Reagente B &nbsp; <span class="dot green"></span> Produto</div>
+  </div>
+</div>
+
+<script>
+// ---------- Utility for SVG plotting ----------
+function createSVGEl(tag, attrs){ const el = document.createElementNS('http://www.w3.org/2000/svg', tag); for(const k in attrs) el.setAttribute(k, attrs[k]); return el; }
+
+// ---------- Energy graph (left) ----------
+const svg = document.getElementById('energyGraph');
+const W = 760, H = 420, M = {l:60,r:20,t:20,b:60};
+svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+function gaussian(x, mu, sigma, amp){ return amp * Math.exp(-0.5*((x-mu)/sigma)**2); }
+const xs = Array.from(Array(201)).map((_,i)=> i/200); // 0..1
+// curves: baseline + gauss
+const semAmp = 1.0, comAmp = 0.55;
+const sigma = 0.12, mu = 0.45;
+
+function buildPath(amp){
+  let d = '';
+  for(let i=0;i<xs.length;i++){
+    const x = xs[i];
+    const gx = gaussian(x, mu, sigma, amp);
+    const px = M.l + x*(W-M.l-M.r);
+    const py = M.t + (1 - (0.12 + gx*0.76))*(H-M.t-M.b);
+    d += (i===0? 'M':'L') + px + ' ' + py + ' ';
+  }
+  return d;
+}
+
+// axes
+svg.appendChild(createSVGEl('rect',{x:0,y:0,width:W,height:H,fill:'transparent'}));
+svg.appendChild(createSVGEl('line',{x1:M.l,y1:H-M.b,x2:W-M.r,y2:H-M.b,stroke:'#bbb', 'stroke-width':1}));
+svg.appendChild(createSVGEl('line',{x1:M.l,y1:H-M.b,x2:M.l,y2:M.t,stroke:'#bbb', 'stroke-width':1}));
+svg.appendChild(createSVGEl('text',{x:W/2,y:H-10,'text-anchor':'middle','font-size':14, fill:'#333'})).textContent='Progresso da reação';
+svg.appendChild(createSVGEl('text',{x:12,y:H/2,'transform':`rotate(-90,12,${H/2})`,'text-anchor':'middle','font-size':14, fill:'#333'})).textContent='Energia potencial';
+
+// plot curves
+const pathSem = createSVGEl('path',{d:buildPath(semAmp), fill:'none', stroke:'#1f77b4', 'stroke-width':3, 'stroke-linecap':'round'});
+const pathCom = createSVGEl('path',{d:buildPath(comAmp), fill:'none', stroke:'#ff7f0e', 'stroke-width':3, 'stroke-linecap':'round', 'stroke-dasharray':'6 6'});
+svg.appendChild(pathSem);
+svg.appendChild(pathCom);
+
+// vertical progress line
+const progLine = createSVGEl('line', {x1:M.l, y1:M.t, x2:M.l, y2:H-M.b, stroke:'#333', 'stroke-width':2, 'stroke-dasharray':'4 4'});
+svg.appendChild(progLine);
+
+// labels for peaks
+const semPeakX = M.l + mu*(W-M.l-M.r);
+const semPeakY = M.t + (1 - (0.12 + gaussian(mu,mu,sigma,semAmp)*0.76))*(H-M.t-M.b);
+const comPeakY = M.t + (1 - (0.12 + gaussian(mu,mu,sigma,comAmp)*0.76))*(H-M.t-M.b);
+
+svg.appendChild(createSVGEl('circle',{cx:semPeakX, cy:semPeakY, r:4, fill:'#1f77b4'}));
+svg.appendChild(createSVGEl('text',{x:semPeakX+8, y:semPeakY-6, 'font-size':12, fill:'#1f77b4'})).textContent='Energia de ativação (sem catal.)';
+
+svg.appendChild(createSVGEl('circle',{cx:semPeakX, cy:comPeakY, r:4, fill:'#ff7f0e'}));
+svg.appendChild(createSVGEl('text',{x:semPeakX+8, y:comPeakY+16, 'font-size':12, fill:'#ff7f0e'})).textContent='Energia de ativação (com catal.)';
+
+// ---------- Mini graph for right panel (small energy curve) ----------
+const svgMini = document.getElementById('miniGraph');
+svgMini.setAttribute('viewBox','0 0 400 200');
+const MW = 380, MH = 160, MM={l:30,r:20,t:10,b:30};
+function buildMiniPath(amp){
+  let d=''; for(let i=0;i<xs.length;i++){ const x=xs[i]; const gx=gaussian(x,mu,sigma,amp); const px=MM.l+x*(MW-MM.l-MM.r); const py=MM.t+(1-(0.12+gx*0.76))*(MH-MM.t-MM.b); d+=(i===0?'M':'L')+px+' '+py+' '; } return d;
+}
+svgMini.appendChild(createSVGEl('path',{d:buildMiniPath(semAmp), fill:'none', stroke:'#1f77b4', 'stroke-width':3}));
+svgMini.appendChild(createSVGEl('path',{d:buildMiniPath(comAmp), fill:'none', stroke:'#ff7f0e', 'stroke-width':3, 'stroke-dasharray':'6 6'}));
+svgMini.appendChild(createSVGEl('text',{x:MM.l, y:MH-MM.b+18, 'font-size':11, fill:'#333'})).textContent='Progresso da reação';
+svgMini.appendChild(createSVGEl('text',{x:8, y:MH/2, 'transform':`rotate(-90,8,${MH/2})`,'font-size':11, fill:'#333'})).textContent='Energia';
+
+// ---------- Animation state ----------
+let mode = 'without'; // 'without' or 'with' catalyzer
+let playing = false;
+let t = 0; // 0..1 progress parameter for graph
+let speed = 1.0;
+
+// controls
+const playBtn = document.getElementById('playBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const speedRange = document.getElementById('speedRange');
+const toggleMode = document.getElementById('toggleMode');
+const probRange = document.getElementById('probRange');
+const resetBtn = document.getElementById('resetBtn');
+
+playBtn.onclick = ()=>{ playing=true; };
+pauseBtn.onclick = ()=>{ playing=false; };
+speedRange.oninput = (e)=>{ speed = parseFloat(e.target.value); };
+resetBtn.onclick = ()=>{ t=0; particles.reset(); particles.initProducts=0; initParticles(); };
+
+toggleMode.onclick = ()=>{
+  if(mode==='without'){ mode='with'; toggleMode.textContent='Modo: Com catalisador'; toggleMode.classList.remove('active'); toggleMode.classList.add('active'); }
+  else { mode='without'; toggleMode.textContent='Modo: Sem catalisador'; toggleMode.classList.remove('active'); toggleMode.classList.add('active'); }
+  // adapt probability and speeds when mode changes
+  adaptMode();
+};
+
+function adaptMode(){
+  if(mode==='without'){ probRange.value = 0.18; particles.baseSpeed=0.9; particles.reactionProb = parseFloat(probRange.value); }
+  else { probRange.value = 0.65; particles.baseSpeed=1.5; particles.reactionProb = parseFloat(probRange.value); }
+}
+probRange.oninput = ()=>{ particles.reactionProb = parseFloat(probRange.value); };
+
+// ---------- Canvas particle animation (right) ----------
+const canvas = document.getElementById('canvasAnim');
+const ctx = canvas.getContext('2d');
+const Wc = canvas.width, Hc = canvas.height;
+
+const particles = {
+  list: [],
+  baseSpeed: 0.9,
+  reactionProb: parseFloat(probRange.value),
+  initProducts: 0,
+  reset: function(){ this.list=[]; },
+  spawnCount: 40,
+  init: function(){
+    this.reset();
+    const n = this.spawnCount;
+    for(let i=0;i<n;i++){
+      const type = (i % 2 === 0) ? 'A' : 'B';
+      this.list.push(this._createParticle(type));
+    }
+    this.initProducts = 0;
+  },
+  _createParticle: function(type){
+    const r = 8 + Math.random()*6;
+    return {
+      id: Math.random().toString(36).slice(2),
+      x: 40 + Math.random()*(Wc-80),
+      y: 40 + Math.random()*(Hc-80),
+      vx: (Math.random()-0.5)*this.baseSpeed*2,
+      vy: (Math.random()-0.5)*this.baseSpeed*2,
+      r: r,
+      type: type, // 'A','B','P' product
+      reacted: false,
+    };
+  },
+  step: function(dt){
+    // move
+    for(const p of this.list){
+      p.x += p.vx * dt * this.baseSpeed;
+      p.y += p.vy * dt * this.baseSpeed;
+      // wall bounce
+      if(p.x < 12){ p.x=12; p.vx *= -1; }
+      if(p.x > Wc-12){ p.x = Wc-12; p.vx *= -1; }
+      if(p.y < 12){ p.y=12; p.vy *= -1; }
+      if(p.y > Hc-12){ p.y = Hc-12; p.vy *= -1; }
+    }
+    // collisions: check pairs A-B
+    for(let i=0;i<this.list.length;i++){
+      const a = this.list[i];
+      for(let j=i+1;j<this.list.length;j++){
+        const b = this.list[j];
+        if(a.type==='P' || b.type==='P') continue;
+        if(a.type === b.type) continue; // only A-B react
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const d2 = dx*dx + dy*dy;
+        const rad = (a.r + b.r);
+        if(d2 < (rad*rad)){
+          // simple elastic-ish response to separate
+          const nx = dx/Math.sqrt(d2+1e-6), ny = dy/Math.sqrt(d2+1e-6);
+          const sep = 0.6;
+          a.x += nx*sep; a.y += ny*sep;
+          b.x -= nx*sep; b.y -= ny*sep;
+          // reaction chance depends on probability slider and mode
+          const prob = this.reactionProb * (mode==='with' ? 1.0 : 0.35);
+          if(Math.random() < prob){
+            // convert both into products or one product for clarity
+            a.type = 'P'; b.type = 'P';
+            a.vx *= 0.2; a.vy *= 0.2; b.vx*=0.2; b.vy*=0.2;
+            this.initProducts += 2;
+          } else {
+            // bounce velocities
+            const tmpvx = a.vx; a.vx = -b.vx*0.8; b.vx = -tmpvx*0.8;
+            const tmpvy = a.vy; a.vy = -b.vy*0.8; b.vy = -tmpvy*0.8;
+          }
+        }
+      }
+    }
+    // occasionally add fresh reagents if too many products
+    const countP = this.list.filter(x=>x.type==='P').length;
+    if(countP > this.spawnCount*0.6){
+      // inject new reagents gradually
+      for(let k=0;k<3;k++) this.list.push(this._createParticle((Math.random()<0.5)?'A':'B'));
+    }
+  },
+  draw: function(ctx){
+    ctx.clearRect(0,0,Wc,Hc);
+    // background grid
+    ctx.fillStyle = '#08111a'; ctx.fillRect(0,0,Wc,Hc);
+    // draw particles
+    for(const p of this.list){
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      if(p.type==='A') ctx.fillStyle = '#1f77b4';
+      else if(p.type==='B') ctx.fillStyle = '#ff7f0e';
+      else ctx.fillStyle = '#2ca02c';
+      ctx.fill();
+      // faint glow for product
+      if(p.type==='P'){
+        ctx.globalAlpha = 0.15;
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,p.r*2.4,0,Math.PI*2); ctx.fill();
+        ctx.globalAlpha = 1.0;
+      }
+    }
+    // draw info
+    ctx.fillStyle='#ddd'; ctx.font='13px sans-serif'; ctx.fillText('Reagentes A: ' + this.list.filter(x=>x.type==='A').length, 10, 18);
+    ctx.fillText('Reagentes B: ' + this.list.filter(x=>x.type==='B').length, 10, 36);
+    ctx.fillText('Produtos: ' + this.list.filter(x=>x.type==='P').length, 10, 54);
+  }
+};
+
+function initParticles(){ particles.init(); }
+initParticles();
+adaptMode();
+
+// ---------- Main loop ----------
+let last = performance.now();
+function animate(now){
+  const dtRaw = (now - last)/1000; last = now;
+  // advance progress t when playing
+  if(playing){
+    // progress speed depends on mode and external slider speed
+    const baseSpeed = (mode==='with') ? 0.45 : 0.12; // arbitrary base to show faster crossing
+    t += dtRaw * baseSpeed * speed;
+    if(t > 1) t = 1;
+  }
+  // move particles with dt scale influenced by mode and speed
+  particles.step(dtRaw * 60 * speed);
+  particles.draw(ctx);
+
+  // update progress line on graph
+  const px = M.l + Math.max(0, Math.min(1, t))*(W-M.l-M.r);
+  progLine.setAttribute('x1', px); progLine.setAttribute('x2', px);
+
+  // update small mini indicator
+  // draw a small circle on mini graph representing progress
+  const miniCx = MM.l + Math.max(0, Math.min(1, t))*(MW-MM.l-MM.r);
+  // remove old indicator
+  const old = svgMini.querySelector('.progDot'); if(old) old.remove();
+  const dot = createSVGEl('circle',{cx:miniCx, cy:MM.t+20, r:5, fill:'#ffffff', class:'progDot', opacity:0.95});
+  svgMini.appendChild(dot);
+
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+// start paused
+playing = false;
+
+// ensure the initial mode button text matches
+toggleMode.textContent = (mode==='without') ? 'Modo: Sem catalisador' : 'Modo: Com catalisador';
+toggleMode.classList.add('active');
+
+</script>
+</body>
+</html>
